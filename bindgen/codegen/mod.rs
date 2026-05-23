@@ -556,9 +556,48 @@ impl CodeGenerator for Module {
     ) {
         debug!("<Module as CodeGenerator>::codegen: item = {item:?}");
 
+        // When `--parse-skip-non-allowlisted-files` is on, items get
+        // inserted in pre-pass order rather than source order, so iterating
+        // `self.children()` (a `BTreeSet<ItemId>` ordered by ItemId)
+        // produces non-source-order output that diverges textually from the
+        // no-flag baseline. Sort children by source location to keep output
+        // bit-identical across flag-on / flag-off runs.
+        //
+        // INVARIANT: this `(file, line, col)` sort key MUST sort the same
+        // direction as the tiebreaker in `compute_overload_suffixes`'s
+        // candidate pick. Codegen's `seen_function` dedup drops all but
+        // the first emission of a same-mangled-name overload, and the
+        // candidate-pick clears the suffix on the one it expects to
+        // survive. If the two sorts disagree, the cleared candidate gets
+        // suppressed and the bare-name binding silently vanishes.
+        let sorted_children: Option<Vec<ItemId>> =
+            if ctx.options().parse_skip_non_allowlisted_files {
+                let mut v: Vec<ItemId> =
+                    self.children().iter().copied().collect();
+                // `sort_by_cached_key` rather than `sort_by_key` so the
+                // (file_name, line, col) tuple — which allocates a
+                // String per call — is materialized once per element
+                // instead of O(n log n) times across comparisons.
+                v.sort_by_cached_key(|id| {
+                    let item = ctx.resolve_item(*id);
+                    item.location().map(|loc| {
+                        let (file, line, col, _) = loc.location();
+                        (file.name().unwrap_or_default(), line, col)
+                    })
+                });
+                Some(v)
+            } else {
+                None
+            };
+
         let codegen_self = |result: &mut CodegenResult,
                             found_any: &mut bool| {
-            for child in self.children() {
+            let children: Box<dyn Iterator<Item = &ItemId>> =
+                match sorted_children {
+                    Some(ref v) => Box::new(v.iter()),
+                    None => Box::new(self.children().iter()),
+                };
+            for child in children {
                 if ctx.codegen_items().contains(child) {
                     *found_any = true;
                     ctx.resolve_item(*child).codegen(ctx, result, &());

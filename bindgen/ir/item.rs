@@ -1228,6 +1228,67 @@ impl TemplateParameters for ItemKind {
     }
 }
 
+/// Pick the Item's source location given the clang `Type` it
+/// represents and the cursor we encountered it through.
+///
+/// When `--parse-skip-non-allowlisted-files` is off, this is just the
+/// referring cursor's location — same as the rest of bindgen.
+///
+/// When the flag is on, prefer the type's canonical / definition
+/// cursor location instead, so the Item ends up at a deterministic
+/// source position regardless of which cursor we happened to parse
+/// first. Two failure modes that motivates:
+///
+/// 1. A forward declaration in an allowlisted file would tag the
+///    type's Item as allowlisted-by-location and pull its body into
+///    output even when the flag-off path parses the canonical
+///    definition cursor first.
+/// 2. Typedefs with multiple redeclarations would point to different
+///    declaration cursors depending on parse order, scrambling the
+///    output ordering.
+///
+/// Two carve-outs:
+///
+/// - For typedefs, prefer the typedef's own canonical declaration
+///   (not the underlying struct's definition — `canonical_type`
+///   strips the typedef and we'd lose the typedef's identity).
+/// - Only relocate to a cursor that lives in an actual file. Clang's
+///   builtin typedefs (e.g. `__int128_t`) report a `<builtin>`
+///   pseudo-file whose `File::name()` is `None`. The post-parse
+///   allowlist filter checks `Item.location().name()` to decide
+///   whether an Item can be a root; relocating to `<builtin>` would
+///   make the filter reject the Item even when an allowlisted
+///   referrer clearly needs it emitted. Falling back to the
+///   referrer's location preserves allowlist-by-file in that case.
+fn resolve_item_location(
+    ctx: &BindgenContext,
+    ty: &clang::Type,
+    location: &clang::Cursor,
+) -> clang::SourceLocation {
+    if !ctx.options().parse_skip_non_allowlisted_files {
+        return location.location();
+    }
+    let has_real_file = |c: &clang::Cursor| {
+        c.is_valid() && c.location().location().0.name().is_some()
+    };
+    let own_decl_canonical = ty.declaration().canonical();
+    let prefer_own = ty.kind() == clang_sys::CXType_Typedef &&
+        has_real_file(&own_decl_canonical);
+    if prefer_own {
+        return own_decl_canonical.location();
+    }
+    ty.canonical_type()
+        .declaration()
+        .definition()
+        .filter(|c| has_real_file(c))
+        .map(|c| c.location())
+        .or_else(|| {
+            has_real_file(&own_decl_canonical)
+                .then(|| own_decl_canonical.location())
+        })
+        .unwrap_or_else(|| location.location())
+}
+
 // An utility function to handle recursing inside nested types.
 fn visit_child(
     cur: clang::Cursor,
@@ -1488,6 +1549,8 @@ impl Item {
         let kind = TypeKind::UnresolvedTypeRef(ty, location, parent_id);
         let current_module = ctx.current_module();
 
+        let item_location = resolve_item_location(ctx, &ty, &location);
+
         ctx.add_item(
             Item::new(
                 potential_id,
@@ -1495,7 +1558,7 @@ impl Item {
                 None,
                 parent_id.unwrap_or_else(|| current_module.into()),
                 ItemKind::Type(Type::new(None, None, kind, is_const)),
-                Some(location.location()),
+                Some(item_location),
             ),
             None,
             None,
@@ -1616,6 +1679,7 @@ impl Item {
 
         let result = Type::from_clang_ty(id, ty, location, parent_id, ctx);
         let relevant_parent_id = parent_id.unwrap_or(current_module);
+        let item_location = resolve_item_location(ctx, ty, &location);
         let ret = match result {
             Ok(ParseResult::AlreadyResolved(ty)) => {
                 Ok(ty.as_type_id_unchecked())
@@ -1628,7 +1692,7 @@ impl Item {
                         annotations,
                         relevant_parent_id,
                         ItemKind::Type(item),
-                        Some(location.location()),
+                        Some(item_location),
                     ),
                     declaration,
                     Some(location),

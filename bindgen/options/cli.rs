@@ -255,6 +255,11 @@ struct BindgenCommand {
     /// Disable allowlisting types recursively. This will cause bindgen to emit Rust code that won't compile! See the `bindgen::Builder::allowlist_recursively` method's documentation for details.
     #[arg(long)]
     no_recursive_allowlist: bool,
+    /// Skip building bindgen IR for cursors whose source location does not match any
+    /// --allowlist-file regex. Items referenced by allowlisted items but never visited
+    /// at parse time are materialized on demand later.
+    #[arg(long)]
+    parse_skip_non_allowlisted_files: bool,
     /// Use extern crate instead of use for objc.
     #[arg(long)]
     objc_extern_crate: bool,
@@ -589,6 +594,7 @@ where
         with_derive_ord,
         no_doc_comments,
         no_recursive_allowlist,
+        parse_skip_non_allowlisted_files,
         objc_extern_crate,
         generate_block,
         generate_cstr,
@@ -920,6 +926,7 @@ where
             no_convert_floats => |b, _| b.no_convert_floats(),
             no_doc_comments => |b, _| b.generate_comments(false),
             no_recursive_allowlist => |b, _| b.allowlist_recursively(false),
+            parse_skip_non_allowlisted_files,
             objc_extern_crate,
             generate_block,
             generate_cstr,

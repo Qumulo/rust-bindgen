@@ -1112,13 +1112,69 @@ fn filter_builtins(ctx: &BindgenContext, cursor: &clang::Cursor) -> bool {
     ctx.options().builtins || !cursor.is_builtin()
 }
 
+/// When `parse_skip_non_allowlisted_files` is set and the cursor isn't a container
+/// kind (TU/Namespace/LinkageSpec/UnexposedDecl), skip parsing it if its source
+/// location is outside every `--allowlist-file` regex. Container cursors always
+/// recurse; their leaf children are filtered individually by this same predicate.
+///
+/// To stay safe, the skip is only active when `--allowlist-file` is the *only*
+/// allowlist set. With any other allowlist regex (types/functions/vars/items)
+/// also set, items named by those regexes may live in non-allowlisted files and
+/// would be incorrectly dropped if we skipped them at parse time.
+fn should_parse_cursor(
+    ctx: &BindgenContext,
+    cursor: &clang::Cursor,
+) -> bool {
+    use clang_sys::*;
+
+    if ctx.force_parse_all() {
+        return true;
+    }
+    if !ctx.options().parse_skip_non_allowlisted_files {
+        return true;
+    }
+    let opts = ctx.options();
+    if opts.allowlisted_files.is_empty() {
+        return true;
+    }
+    if !opts.allowlisted_types.is_empty() ||
+        !opts.allowlisted_functions.is_empty() ||
+        !opts.allowlisted_vars.is_empty() ||
+        !opts.allowlisted_items.is_empty()
+    {
+        return true;
+    }
+
+    // Container cursors always parse — they aggregate decls from many files,
+    // and their children may live in allowlisted files even when the container
+    // itself does not.
+    match cursor.kind() {
+        CXCursor_TranslationUnit |
+        CXCursor_Namespace |
+        CXCursor_LinkageSpec |
+        CXCursor_UnexposedDecl => return true,
+        _ => {}
+    }
+
+    let location = cursor.location();
+    let (file, _, _, _) = location.location();
+    let Some(filename) = file.name() else {
+        return false;
+    };
+    opts.allowlisted_files.matches(&filename)
+}
+
 /// Parse one `Item` from the Clang cursor.
-fn parse_one(
+pub(crate) fn parse_one(
     ctx: &mut BindgenContext,
     cursor: clang::Cursor,
     parent: Option<ItemId>,
 ) {
     if !filter_builtins(ctx, &cursor) {
+        return;
+    }
+
+    if !should_parse_cursor(ctx, &cursor) {
         return;
     }
 

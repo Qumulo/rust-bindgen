@@ -323,20 +323,89 @@ impl ClangSubItemParser for Var {
                 // tests/headers/inner_const.hpp
                 //
                 // That's fine because in that case we know it's not a literal.
-                let canonical_ty = ctx
-                    .safe_resolve_type(ty)
-                    .and_then(|t| t.safe_canonical_type(ctx));
+                #[derive(Copy, Clone)]
+                enum CanonicalKind {
+                    Int(IntKind),
+                    Float,
+                    Other,
+                }
+                let mut canonical_kind: CanonicalKind = {
+                    let resolved = ctx
+                        .safe_resolve_type(ty)
+                        .and_then(|t| t.safe_canonical_type(ctx));
+                    match resolved.map(|t| t.kind()) {
+                        Some(TypeKind::Int(k)) => CanonicalKind::Int(*k),
+                        Some(TypeKind::Float(_)) => CanonicalKind::Float,
+                        _ => CanonicalKind::Other,
+                    }
+                };
 
-                let is_integer = canonical_ty.is_some_and(|t| t.is_integer());
-                let is_float = canonical_ty.is_some_and(|t| t.is_float());
+                // When `--parse-skip-non-allowlisted-files` is on, the var's
+                // type can resolve to an `UnresolvedTypeRef` because the
+                // typedef chain (e.g. `typedef unsigned int u32;`) lives in a
+                // skipped file. Without this fallback, `is_integer` /
+                // `is_float` come out false and the var is emitted as an
+                // extern `pub static` instead of a `pub const` with its
+                // literal value. Resolve through clang's own canonical type
+                // (which always sees through typedefs) to recover the kind.
+                //
+                // Width carve-out: `cursor.evaluate()` returns a
+                // `CXEvalResult`. For integer kinds we extract the value via
+                // `clang_EvalResult_getAsLongLong` (`long long` = i64) or
+                // `clang_EvalResult_getAsUnsigned` (`unsigned long long` =
+                // u64). Both APIs silently truncate values wider than 64
+                // bits: a `(i128)(1 << 127)` initializer comes back as 0,
+                // `(i128)~0` as -1. Emitting `pub const x: i128 = 0;` with
+                // those wrong values is worse than emitting a `pub static`
+                // binding with no literal at all.
+                //
+                // OFF mode happens to leave `canonical_kind = Other` for
+                // these typedef chains already (it never gets through to
+                // `TypeKind::Int(I128 | U128)`), so its emission is a `pub
+                // static`. To keep ON matching OFF, decline to promote when
+                // the resolved integer kind is provably wider than `i64` /
+                // `u64`. `IntKind::known_size()` returns the byte width
+                // only for fixed-width kinds (`U8`/`I64`/`I128`/etc.) and
+                // `None` for platform-dependent (`Long`/`ULongLong`/...)
+                // and user-defined kinds. Those platform-dependent kinds
+                // are <=64 bits everywhere bindgen targets and should
+                // still be promoted, so the carve-out fires only when
+                // `known_size()` returns `Some(s)` with `s > 8`.
+                if matches!(canonical_kind, CanonicalKind::Other) &&
+                    ctx.options().parse_skip_non_allowlisted_files
+                {
+                    let clang_canonical = cursor.cur_type().canonical_type();
+                    if let Ok(tid) = Item::from_ty(
+                        &clang_canonical,
+                        cursor,
+                        None,
+                        ctx,
+                    ) {
+                        let resolved = ctx
+                            .safe_resolve_type(tid)
+                            .and_then(|t| t.safe_canonical_type(ctx));
+                        canonical_kind = match resolved.map(|t| t.kind()) {
+                            Some(TypeKind::Int(k))
+                                if matches!(k.known_size(), Some(s) if s > 8) =>
+                            {
+                                CanonicalKind::Other
+                            }
+                            Some(TypeKind::Int(k)) => CanonicalKind::Int(*k),
+                            Some(TypeKind::Float(_)) => CanonicalKind::Float,
+                            _ => CanonicalKind::Other,
+                        };
+                    }
+                }
+
+                let is_integer = matches!(canonical_kind, CanonicalKind::Int(_));
+                let is_float = matches!(canonical_kind, CanonicalKind::Float);
 
                 // TODO: We could handle `char` more gracefully.
                 // TODO: Strings, though the lookup is a bit more hard (we need
                 // to look at the canonical type of the pointee too, and check
                 // is char, u8, or i8 I guess).
                 let value = if is_integer {
-                    let TypeKind::Int(kind) = *canonical_ty.unwrap().kind()
-                    else {
+                    let CanonicalKind::Int(kind) = canonical_kind else {
                         unreachable!()
                     };
 

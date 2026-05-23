@@ -1269,6 +1269,22 @@ impl CompInfo {
         );
 
         let mut cursor = ty.declaration();
+        // When `--parse-skip-non-allowlisted-files` is set, prefer the
+        // definition cursor so that fields are visited even when
+        // `clang_getTypeDeclaration` returned a forward decl. Without this,
+        // a type whose definition was never independently visited by parse
+        // (because the skip filter elided it) ends up materialized as an
+        // empty / opaque CompInfo. Gated on the flag to avoid changing the
+        // declaration-cursor preference for the default code path.
+        let mut found_definition = false;
+        if ctx.options().parse_skip_non_allowlisted_files {
+            if let Some(definition) = cursor.definition() {
+                if definition.is_valid() {
+                    cursor = definition;
+                    found_definition = true;
+                }
+            }
+        }
         let mut kind = Self::kind_from_cursor(&cursor);
         if kind.is_err() {
             if let Some(location) = location {
@@ -1282,7 +1298,7 @@ impl CompInfo {
         debug!("CompInfo::from_ty({kind:?}, {cursor:?})");
 
         let mut ci = CompInfo::new(kind);
-        ci.is_forward_declaration =
+        ci.is_forward_declaration = !found_definition &&
             location.map_or(true, |cur| match cur.kind() {
                 CXCursor_ParmDecl => true,
                 CXCursor_StructDecl | CXCursor_UnionDecl |

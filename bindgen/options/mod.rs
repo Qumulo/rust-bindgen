@@ -1532,6 +1532,24 @@ options! {
         },
         as_args: |value, args| (!value).as_args(args, "--no-recursive-allowlist"),
     },
+    /// Whether to skip building IR for cursors whose source location does not match
+    /// any `--allowlist-file` regex.
+    parse_skip_non_allowlisted_files: bool {
+        methods: {
+            /// When `--allowlist-file` is set, skip building IR for cursors whose source
+            /// location doesn't match any allowlisted file. Items referenced by allowlisted
+            /// items but never visited at parse time are materialized on demand in
+            /// `resolve_typerefs`. Dramatically reduces parse-phase work when the allowlist
+            /// covers a small fraction of the translation unit.
+            ///
+            /// Has no effect if no `--allowlist-file` is set.
+            pub fn parse_skip_non_allowlisted_files(mut self, doit: bool) -> Self {
+                self.options.parse_skip_non_allowlisted_files = doit;
+                self
+            }
+        },
+        as_args: "--parse-skip-non-allowlisted-files",
+    },
     /// Whether to emit `#[macro_use] extern crate objc;` instead of `use objc;` in the prologue of
     /// the files generated from objective-c files.
     objc_extern_crate: bool {

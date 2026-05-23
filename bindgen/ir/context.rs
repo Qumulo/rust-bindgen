@@ -301,7 +301,7 @@ where
 /// in which case clang may generate the same USR for multiple nested unnamed
 /// types.
 #[derive(Eq, PartialEq, Hash, Debug)]
-enum TypeKey {
+pub(super) enum TypeKey {
     Usr(String),
     Declaration(Cursor),
 }
@@ -310,11 +310,11 @@ enum TypeKey {
 #[derive(Debug)]
 pub(crate) struct BindgenContext {
     /// The map of all the items parsed so far, keyed off `ItemId`.
-    items: Vec<Option<Item>>,
+    pub(super) items: Vec<Option<Item>>,
 
     /// Clang USR to type map. This is needed to be able to associate types with
     /// item ids during parsing.
-    types: HashMap<TypeKey, TypeId>,
+    pub(super) types: HashMap<TypeKey, TypeId>,
 
     /// Maps from a cursor to the item ID of the named template type parameter
     /// for that cursor.
@@ -324,7 +324,7 @@ pub(crate) struct BindgenContext {
     modules: HashMap<Cursor, ModuleId>,
 
     /// The root module, this is guaranteed to be an item of kind Module.
-    root_module: ModuleId,
+    pub(super) root_module: ModuleId,
 
     /// Current module being traversed.
     current_module: ModuleId,
@@ -369,9 +369,14 @@ pub(crate) struct BindgenContext {
     deps: BTreeSet<Box<str>>,
 
     /// The active replacements collected from replaces="xxx" annotations.
-    replacements: HashMap<Vec<String>, ItemId>,
+    pub(super) replacements: HashMap<Vec<String>, ItemId>,
 
     collected_typerefs: bool,
+
+    /// When true, `should_parse_cursor` returns true unconditionally so a
+    /// subtree parse can fully traverse a referenced canonical declaration
+    /// that was previously skipped by `--parse-skip-non-allowlisted-files`.
+    pub(super) force_parse_all: bool,
 
     in_codegen: bool,
 
@@ -598,6 +603,7 @@ If you encounter an error missing from this list, please file an issue or a PR!"
             parsed_macros: Default::default(),
             replacements: Default::default(),
             collected_typerefs: false,
+            force_parse_all: false,
             in_codegen: false,
             translation_unit,
             fallback_tu: None,
@@ -925,6 +931,13 @@ If you encounter an error missing from this list, please file an issue or a PR!"
         self.collected_typerefs
     }
 
+    /// Returns true if the `--parse-skip-non-allowlisted-files` filter should
+    /// be temporarily disabled for the current parse subtree.
+    pub(crate) fn force_parse_all(&self) -> bool {
+        self.force_parse_all
+    }
+
+
     /// Gather all the unresolved type references.
     fn collect_typerefs(
         &mut self,
@@ -1190,6 +1203,36 @@ If you encounter an error missing from this list, please file an issue or a PR!"
     {
         self.in_codegen = true;
 
+        self.parse_replacement_decls();
+        self.parse_overloads_of_allowlisted();
+        self.parse_referenced_non_allowlisted();
+        // `parse_referenced_non_allowlisted` may have materialized a
+        // `_for_rust` cursor (one carrying a `replaces=` annotation) that
+        // wasn't covered by the initial `parse_replacement_decls` scan.
+        // That call registers a new entry in `self.replacements`, but the
+        // target — the name being replaced — still needs an Item or
+        // `process_replacements` has nothing to swap. The chase that
+        // followed might itself have materialized another `_for_rust`
+        // cursor, so loop until both ends of the pair (the replacement
+        // registration and the chase) reach a fixed point.
+        //
+        // Each iteration must make observable progress — either
+        // `materialize_replacement_targets` parses at least one new
+        // Item (which it signals by returning `true`) or
+        // `parse_referenced_non_allowlisted` adds a new entry to
+        // `self.replacements`. If neither happens, the loop terminates.
+        // Bounded above by the number of `_for_rust` cursors in the TU,
+        // which is finite, so the loop always terminates.
+        loop {
+            let replacements_before = self.replacements.len();
+            if !self.materialize_replacement_targets() {
+                break;
+            }
+            self.parse_referenced_non_allowlisted();
+            if self.replacements.len() == replacements_before {
+                break;
+            }
+        }
         self.resolve_typerefs();
         self.compute_bitfield_units();
         self.process_replacements();
@@ -2898,11 +2941,80 @@ If you encounter an error missing from this list, please file an issue or a PR!"
         self.has_float.as_ref().unwrap().contains(&id.into())
     }
 
+    /// Build a map from each FunctionDecl/Method cursor's mangling
+    /// (linker symbol, computed via the same `cursor_mangling` helper
+    /// that populates Function::mangled_name) to its position in the
+    /// TU walk. Used by `compute_overload_suffixes` so the canonical-
+    /// overload pick under `--parse-skip-non-allowlisted-files` mirrors
+    /// what main parse would have picked in flag-OFF mode (= first
+    /// cursor visited in clang's TU walk order, which respects include
+    /// order). Without this, ON-mode ItemId order is biased toward
+    /// allowlisted overloads (because main parse processes them first),
+    /// and a different overload may end up canonical between modes.
+    fn build_tu_function_walk_order(&self) -> HashMap<String, usize> {
+        use clang_sys::*;
+        let mut order: HashMap<String, usize> = HashMap::default();
+        // Keys are mangled names from `cursor_mangling`, which returns
+        // `None` when `--distrust-clang-mangling` is set. The walk
+        // would produce an empty map; skip it entirely.
+        if !self.options().enable_mangling {
+            return order;
+        }
+        let mut pos = 0usize;
+        fn walk(
+            ctx: &BindgenContext,
+            cursor: &Cursor,
+            pos: &mut usize,
+            order: &mut HashMap<String, usize>,
+        ) {
+            cursor.visit(|child| {
+                match child.kind() {
+                    CXCursor_FunctionDecl |
+                    CXCursor_CXXMethod |
+                    CXCursor_Constructor |
+                    CXCursor_Destructor |
+                    CXCursor_FunctionTemplate => {
+                        if let Some(key) =
+                            crate::ir::function::cursor_mangling(ctx, &child)
+                        {
+                            if !key.is_empty() && !order.contains_key(&key) {
+                                order.insert(key, *pos);
+                                *pos += 1;
+                            }
+                        }
+                    }
+                    CXCursor_Namespace |
+                    CXCursor_LinkageSpec |
+                    CXCursor_UnexposedDecl |
+                    CXCursor_StructDecl |
+                    CXCursor_ClassDecl |
+                    CXCursor_ClassTemplate => {
+                        walk(ctx, &child, pos, order);
+                    }
+                    _ => {}
+                }
+                CXChildVisit_Continue
+            });
+        }
+        walk(self, &self.translation_unit().cursor(), &mut pos, &mut order);
+        order
+    }
+
     /// Compute suffixes to apply to item names in order to disambiguate
     /// function overloads
     fn compute_overload_suffixes(&mut self) {
+        // Build a TU-walk-order map for source-order canonical pick when
+        // the skip flag is on. Empty when the flag is off (unused).
+        let walk_order: HashMap<String, usize> =
+            if self.options().parse_skip_non_allowlisted_files {
+                self.build_tu_function_walk_order()
+            } else {
+                HashMap::default()
+            };
+
         fn process_overload_set<I>(
             ctx: &BindgenContext,
+            walk_order: &HashMap<String, usize>,
             overload_suffixes: &mut HashMap<FunctionId, String>,
             overloads: I) where I: Iterator<Item=(FunctionId, TypeId, bool)>
         {
@@ -2943,7 +3055,7 @@ If you encounter an error missing from this list, please file an issue or a PR!"
                 .map(|(fn_id, arg_names, is_const)| {
                 let mut overload_suffix = String::new();
                 for arg_name in &arg_names[common_prefix..] {
-                    write!(&mut overload_suffix, "_{}", arg_name).unwrap();
+                    write!(&mut overload_suffix, "_{arg_name}").unwrap();
                 }
                 let is_overloaded_by_const = *is_const && overloads.iter()
                     .any(|(_, other_args, other_const)| {
@@ -2954,10 +3066,73 @@ If you encounter an error missing from this list, please file an issue or a PR!"
                 }
                 (*fn_id, overload_suffix)
             }).collect();
-            if overloads[1..].iter().all(|(_, mangle)| mangle != "") {
-                // So long as it wouldn't conflict with any other overloads,
-                // prefer to not rename the first overload.
-                overloads[0].1 = "".to_owned();
+            // Prefer to leave one overload's suffix empty for ergonomic
+            // names. With `--parse-skip-non-allowlisted-files` ON, parse
+            // order is non-deterministic across the lazy-parse pre-passes,
+            // so pick by source location to produce the same candidate
+            // regardless of mode. With the flag OFF, fall back to the
+            // existing behavior — clear `overloads[0]` if none of the
+            // others is already empty — so downstream consumers that call
+            // the canonical (bare-named) overload by name see the same
+            // shape they always have.
+            if ctx.options().parse_skip_non_allowlisted_files {
+                // Pick the candidate (the overload whose suffix we clear so
+                // it emits bare) by `(walk_order, file, line, col)`:
+                //
+                // - `walk_order` is clang's TU-walk position keyed by
+                //   mangled name (built once in `build_tu_function_walk_order`).
+                //   This matches OFF's pick for the common case where
+                //   each overload has a unique mangled name — OFF picks
+                //   overloads[0] = first ItemId = first parsed = first
+                //   visited by the TU walk, which is exactly what
+                //   walk_order encodes.
+                //
+                // - `(file, line, col)` ties when two overloads share a
+                //   mangled name (i.e. redeclarations of the same C
+                //   function — common when one .h file forward-declares
+                //   a function that a generated _gen.h also declares).
+                //   For those duplicates, codegen's seen_function dedup
+                //   only emits ONE Item, and Module::codegen iterates
+                //   children in this same `(file, line, col)` order
+                //   under the flag. The candidate must be whichever
+                //   redeclaration codegen reaches first, otherwise that
+                //   one emits with a non-empty suffix and the suffix-
+                //   cleared candidate is suppressed — silently dropping
+                //   the bare-name binding.
+                //
+                // INVARIANT: this tuple's `(file, line, col)` tail MUST
+                // sort the same direction as `Module::codegen`'s
+                // child-sort under the flag. If you change either
+                // sort, change both.
+                let mut by_source: Vec<usize> = (0..overloads.len()).collect();
+                // `sort_by_cached_key` rather than `sort_by_key` so the
+                // (file_name, line, col) tuple — which allocates a
+                // String per call — is materialized once per element
+                // instead of O(n log n) times across comparisons.
+                by_source.sort_by_cached_key(|&i| {
+                    let fn_id = overloads[i].0;
+                    let item = ctx.resolve_item(fn_id);
+                    let key = match item.kind() {
+                        ItemKind::Function(ref f) => {
+                            f.mangled_name().unwrap_or("")
+                        }
+                        _ => "",
+                    };
+                    let wo = walk_order.get(key).copied().unwrap_or(usize::MAX);
+                    let loc = item.location().map(|l| {
+                        let (file, line, col, _) = l.location();
+                        (file.name().unwrap_or_default(), line, col)
+                    });
+                    (wo, loc)
+                });
+                let candidate_idx = *by_source.first().unwrap_or(&0);
+                if overloads.iter().enumerate().all(|(i, (_, m))| {
+                    i == candidate_idx || !m.is_empty()
+                }) {
+                    overloads[candidate_idx].1 = String::new();
+                }
+            } else if overloads[1..].iter().all(|(_, m)| !m.is_empty()) {
+                overloads[0].1 = String::new();
             }
             overload_suffixes.extend(overloads);
         }
@@ -2972,14 +3147,14 @@ If you encounter an error missing from this list, please file an issue or a PR!"
                 let is_const = self.resolve_item(item.parent_id())
                     .as_type()
                     .and_then(|ty| ty.as_comp())
-                    .map(|comp| {
+                    .is_some_and(|comp| {
                         comp.methods().iter().any(|m| m.signature() == fun_id && m.is_const())
-                    }).unwrap_or(false);
+                    });
 
                 namespaces
                     .entry(item.parent_id())
                     .or_default()
-                    .push((fun_id, is_const))
+                    .push((fun_id, is_const));
             }
         }
 
@@ -2996,7 +3171,7 @@ If you encounter an error missing from this list, please file an issue or a PR!"
                     .push((id, func.signature(), is_const));
             }
             for (_name, overload_set) in working_set {
-                process_overload_set(self, &mut overload_suffixes, overload_set.into_iter());
+                process_overload_set(self, &walk_order, &mut overload_suffixes, overload_set.into_iter());
             }
         }
 
