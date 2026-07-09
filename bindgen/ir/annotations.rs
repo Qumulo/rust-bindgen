@@ -191,6 +191,38 @@ impl Annotations {
         self.disallow_default
     }
 
+    pub fn derive_copy(&self) -> bool {
+        self.derives.iter().any(|item| item == "Copy")
+    }
+
+    pub fn derive_debug(&self) -> bool {
+        self.derives.iter().any(|item| item == "Debug")
+    }
+
+    pub fn derive_default(&self) -> bool {
+        self.derives.iter().any(|item| item == "Default")
+    }
+
+    pub fn derive_hash(&self) -> bool {
+        self.derives.iter().any(|item| item == "Hash")
+    }
+
+    pub fn derive_partialord(&self) -> bool {
+        self.derives.iter().any(|item| item == "PartialOrd")
+    }
+
+    pub fn derive_ord(&self) -> bool {
+        self.derives.iter().any(|item| item == "Ord")
+    }
+
+    pub fn derive_partialeq(&self) -> bool {
+        self.derives.iter().any(|item| item == "PartialEq")
+    }
+
+    pub fn derive_eq(&self) -> bool {
+        self.derives.iter().any(|item| item == "Eq")
+    }
+
     /// Should this type get a `#[must_use]` annotation?
     pub(crate) fn must_use_type(&self) -> bool {
         self.must_use_type

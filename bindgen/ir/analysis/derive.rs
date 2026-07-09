@@ -167,6 +167,10 @@ impl CannotDerive<'_> {
         }
 
         trace!("ty: {ty:?}");
+        if self.derive_trait.explicitly_derived(&item) {
+            return CanDerive::Yes;
+        }
+
         if item.is_opaque(self.ctx, &()) {
             if !self.derive_trait.can_derive_union() &&
                 ty.is_union() &&
@@ -290,6 +294,10 @@ impl CannotDerive<'_> {
                     !info.has_non_type_template_params(),
                     "The early ty.is_opaque check should have handled this case"
                 );
+
+                if self.derive_trait.no_derive(self.ctx) {
+                    return CanDerive::No;
+                }
 
                 if !self.derive_trait.can_derive_compound_forward_decl() &&
                     info.is_forward_declaration()
@@ -460,6 +468,26 @@ impl DeriveTrait {
             DeriveTrait::PartialEqOrPartialOrd => {
                 ctx.no_partialeq_by_name(item)
             }
+        }
+    }
+
+    fn explicitly_derived(self, item: &Item) -> bool {
+        match self {
+            DeriveTrait::Copy => item.annotations().derive_copy(),
+            DeriveTrait::Debug => item.annotations().derive_debug(),
+            DeriveTrait::Default => item.annotations().derive_default(),
+            DeriveTrait::Hash => item.annotations().derive_hash(),
+            DeriveTrait::PartialEqOrPartialOrd => item.annotations().derive_partialord(),
+        }
+    }
+
+    fn no_derive(self, ctx: &BindgenContext) -> bool {
+        match self {
+            DeriveTrait::Copy => !ctx.options().derive_copy,
+            DeriveTrait::Debug => !ctx.options().derive_debug,
+            DeriveTrait::Default => !ctx.options().derive_default,
+            DeriveTrait::Hash => !ctx.options().derive_hash,
+            DeriveTrait::PartialEqOrPartialOrd => !ctx.options().derive_partialeq,
         }
     }
 

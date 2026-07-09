@@ -152,7 +152,7 @@ fn derives_of_item(
 ) -> DerivableTraits {
     let mut derivable_traits = DerivableTraits::empty();
 
-    if item.can_derive_copy(ctx) && !item.annotations().disallow_copy() {
+    if !item.annotations().derive_copy() && item.can_derive_copy(ctx) && !item.annotations().disallow_copy() {
         derivable_traits |= DerivableTraits::COPY;
 
         // FIXME: This requires extra logic if you have a big array in a
@@ -168,31 +168,31 @@ fn derives_of_item(
         return derivable_traits;
     }
 
-    if item.can_derive_debug(ctx) && !item.annotations().disallow_debug() {
+    if !item.annotations().derive_debug() && item.can_derive_debug(ctx) && !item.annotations().disallow_debug() {
         derivable_traits |= DerivableTraits::DEBUG;
     }
 
-    if item.can_derive_default(ctx) && !item.annotations().disallow_default() {
+    if !item.annotations().derive_default() && item.can_derive_default(ctx) && !item.annotations().disallow_default() {
         derivable_traits |= DerivableTraits::DEFAULT;
     }
 
-    if item.can_derive_hash(ctx) {
+    if !item.annotations().derive_hash() && item.can_derive_hash(ctx) {
         derivable_traits |= DerivableTraits::HASH;
     }
 
-    if item.can_derive_partialord(ctx) {
+    if !item.annotations().derive_partialord() && item.can_derive_partialord(ctx) {
         derivable_traits |= DerivableTraits::PARTIAL_ORD;
     }
 
-    if item.can_derive_ord(ctx) {
+    if !item.annotations().derive_ord() && item.can_derive_ord(ctx) {
         derivable_traits |= DerivableTraits::ORD;
     }
 
-    if item.can_derive_partialeq(ctx) {
+    if !item.annotations().derive_partialeq() && item.can_derive_partialeq(ctx) {
         derivable_traits |= DerivableTraits::PARTIAL_EQ;
     }
 
-    if item.can_derive_eq(ctx) {
+    if !item.annotations().derive_eq() && item.can_derive_eq(ctx) {
         derivable_traits |= DerivableTraits::EQ;
     }
 

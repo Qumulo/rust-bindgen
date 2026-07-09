@@ -47,7 +47,7 @@ pub enum NoDebug {
 }
 #[repr(u32)]
 /// <div rustbindgen derive="Debug"></div>
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
 pub enum Debug {
     Debug1 = 0,
     Debug2 = 1,

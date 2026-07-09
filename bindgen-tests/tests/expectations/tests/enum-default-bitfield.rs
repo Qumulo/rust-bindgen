@@ -154,5 +154,5 @@ impl ::std::ops::BitAndAssign for Debug {
 }
 #[repr(transparent)]
 /// <div rustbindgen derive="Debug"></div>
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
 pub struct Debug(pub ::std::os::raw::c_uint);

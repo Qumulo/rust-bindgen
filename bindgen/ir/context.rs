@@ -235,7 +235,7 @@ where
     T: Copy + Into<ItemId>,
 {
     fn can_derive_copy(&self, ctx: &BindgenContext) -> bool {
-        ctx.options().derive_copy && ctx.lookup_can_derive_copy(*self)
+        ctx.lookup_can_derive_copy(*self)
     }
 }
 
