@@ -5446,11 +5446,11 @@ pub(crate) mod utils {
     ) {
         let use_block = if ctx.options().block_extern_crate {
             quote! {
-                extern crate block;
+                extern crate functor;
             }
         } else {
             quote! {
-                use block;
+                use functor;
             }
         };
 
@@ -5910,7 +5910,7 @@ pub(crate) mod utils {
 
         let ret_ty = fnsig_return_ty_internal(ctx, sig);
         quote! {
-            *const ::block::Block<(#(#args,)*), #ret_ty>
+            *const ::functor::Functor<(#(#args,)*), #ret_ty>
         }
     }
 
