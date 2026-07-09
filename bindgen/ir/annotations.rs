@@ -104,6 +104,8 @@ pub(crate) struct Annotations {
     derives: Vec<String>,
     /// List of explicit attributes for this type.
     attributes: Vec<String>,
+    /// Whether this type should be !Unpin.
+    pinned: bool,
 }
 
 fn parse_accessor(s: &str) -> FieldAccessorKind {
@@ -274,6 +276,7 @@ impl Annotations {
                         self.accessor_kind = Some(parse_accessor(&attr.value));
                     }
                     "constant" => self.constify_enum_variant = true,
+                    "pinned" => self.pinned = true,
                     _ => {}
                 }
             }
@@ -287,5 +290,10 @@ impl Annotations {
     /// Returns whether we've parsed a "constant" attribute.
     pub(crate) fn constify_enum_variant(&self) -> bool {
         self.constify_enum_variant
+    }
+
+    /// Returns whether we've parsed a "pinned" attribute.
+    pub fn pinned(&self) -> bool {
+        self.pinned
     }
 }

@@ -2271,6 +2271,13 @@ impl CodeGenerator for CompInfo {
 
         let mut explicit_align = None;
 
+        if item.annotations().pinned() {
+            let prefix = ctx.trait_prefix();
+            fields.push(
+                quote! { pub __bindgen_pinned: ::#prefix::marker::PhantomPinned },
+            );
+        }
+
         // C++ requires every struct to be addressable, so what C++ compilers do
         // is making the struct 1-byte sized.
         //
