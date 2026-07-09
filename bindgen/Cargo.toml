@@ -43,7 +43,7 @@ shlex.workspace = true
 syn = { workspace = true, features = ["full", "extra-traits", "visit-mut"] }
 
 [features]
-default = ["logging", "prettyplease", "runtime"]
+default = ["logging", "prettyplease"]
 logging = ["dep:log"]
 static = ["clang-sys/static"]
 runtime = ["clang-sys/runtime"]
