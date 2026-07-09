@@ -40,10 +40,10 @@ where
 
     #[inline]
     pub unsafe fn raw_get_bit(this: *const Self, index: usize) -> bool {
-        debug_assert!(index / 8 < core::mem::size_of::<Storage>());
+        debug_assert!(index / 8 < ::std::mem::size_of::<Storage>());
 
         let byte_index = index / 8;
-        let byte = unsafe { *(core::ptr::addr_of!((*this).storage) as *const u8)
+        let byte = unsafe { *(::std::ptr::addr_of!((*this).storage) as *const u8)
             .offset(byte_index as isize) };
 
         Self::extract_bit(byte, index)
@@ -77,11 +77,11 @@ where
 
     #[inline]
     pub unsafe fn raw_set_bit(this: *mut Self, index: usize, val: bool) {
-        debug_assert!(index / 8 < core::mem::size_of::<Storage>());
+        debug_assert!(index / 8 < ::std::mem::size_of::<Storage>());
 
         let byte_index = index / 8;
         let byte = unsafe {
-            (core::ptr::addr_of_mut!((*this).storage) as *mut u8)
+            (::std::ptr::addr_of_mut!((*this).storage) as *mut u8)
                 .offset(byte_index as isize)
         };
 
@@ -120,10 +120,10 @@ where
         bit_width: u8,
     ) -> u64 {
         debug_assert!(bit_width <= 64);
-        debug_assert!(bit_offset / 8 < core::mem::size_of::<Storage>());
+        debug_assert!(bit_offset / 8 < ::std::mem::size_of::<Storage>());
         debug_assert!(
             (bit_offset + (bit_width as usize)) / 8 <=
-                core::mem::size_of::<Storage>()
+                ::std::mem::size_of::<Storage>()
         );
 
         let mut val = 0;
@@ -171,10 +171,10 @@ where
         val: u64,
     ) {
         debug_assert!(bit_width <= 64);
-        debug_assert!(bit_offset / 8 < core::mem::size_of::<Storage>());
+        debug_assert!(bit_offset / 8 < ::std::mem::size_of::<Storage>());
         debug_assert!(
             (bit_offset + (bit_width as usize)) / 8 <=
-                core::mem::size_of::<Storage>()
+                ::std::mem::size_of::<Storage>()
         );
 
         for i in 0..(bit_width as usize) {
