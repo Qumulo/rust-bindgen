@@ -21,9 +21,10 @@ use crate::callbacks::ItemInfo;
 use crate::clang;
 use crate::parse::{ClangSubItemParser, ParseError, ParseResult};
 
+use std::borrow::Cow;
 use std::cell::{Cell, OnceCell};
 use std::collections::BTreeSet;
-use std::fmt::Write;
+use std::fmt::Write as _;
 use std::io;
 use std::iter;
 use std::sync::OnceLock;
@@ -741,42 +742,14 @@ impl Item {
         }
     }
 
-    /// Get this function item's name, or `None` if this item is not a function.
-    fn func_name(&self) -> Option<&str> {
-        match *self.kind() {
-            ItemKind::Function(ref func) => Some(func.name()),
-            _ => None,
+    pub fn overload_mangled<'a>(&self, ctx: &BindgenContext, base_name: &'a str) -> Cow<'a, str> {
+        match self.id().as_function_id(ctx) {
+            Some(fn_id) => {
+                let suffix = ctx.lookup_overload_suffix(fn_id);
+                format!("{}{}", base_name, suffix).into()
+            },
+            None => base_name.into(),
         }
-    }
-
-    /// Get the overload index for this method. If this is not a method, return
-    /// `None`.
-    fn overload_index(&self, ctx: &BindgenContext) -> Option<usize> {
-        self.func_name().and_then(|func_name| {
-            let parent = ctx.resolve_item(self.parent_id());
-            if let ItemKind::Type(ref ty) = *parent.kind() {
-                if let TypeKind::Comp(ref ci) = *ty.kind() {
-                    // All the constructors have the same name, so no need to
-                    // resolve and check.
-                    return ci
-                        .constructors()
-                        .iter()
-                        .position(|c| *c == self.id())
-                        .or_else(|| {
-                            ci.methods()
-                                .iter()
-                                .filter(|m| {
-                                    let item = ctx.resolve_item(m.signature());
-                                    let func = item.expect_function();
-                                    func.name() == func_name
-                                })
-                                .position(|m| m.signature() == self.id())
-                        });
-                }
-            }
-
-            None
-        })
     }
 
     /// Get this item's base name (aka non-namespaced name).
@@ -796,15 +769,7 @@ impl Item {
                 Into::into,
             ),
             ItemKind::Function(ref fun) => {
-                let mut name = fun.name().to_owned();
-
-                if let Some(idx) = self.overload_index(ctx) {
-                    if idx > 0 {
-                        write!(&mut name, "{idx}").unwrap();
-                    }
-                }
-
-                name
+                fun.name().to_owned()
             }
         }
     }
@@ -923,6 +888,7 @@ impl Item {
         let name = names.join("_");
 
         let name = if opt.user_mangled == UserMangled::Yes {
+            let name = self.overload_mangled(ctx, &name);
             let item_info = ItemInfo {
                 name: &name,
                 kind: match self.kind() {
@@ -936,7 +902,7 @@ impl Item {
             };
             ctx.options()
                 .last_callback(|callbacks| callbacks.item_name(item_info))
-                .unwrap_or(name)
+                .unwrap_or_else(|| name.into_owned())
         } else {
             name
         };

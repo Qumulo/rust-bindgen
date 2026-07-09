@@ -15,11 +15,11 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[link_name = "\u{1}_ZN1AC1ERS_"]
-    pub fn A_A1(this: *mut A, arg1: *mut A);
+    pub fn A_A_ref_A(this: *mut A, arg1: *mut A);
 }
 unsafe extern "C" {
     #[link_name = "\u{1}_ZN1AC1EOS_"]
-    pub fn A_A2(this: *mut A, arg1: *mut A);
+    pub fn A_A_ref_A1(this: *mut A, arg1: *mut A);
 }
 unsafe extern "C" {
     #[link_name = "\u{1}_ZN1AD1Ev"]
@@ -33,15 +33,15 @@ impl A {
         __bindgen_tmp.assume_init()
     }
     #[inline]
-    pub unsafe fn new1(arg1: *mut A) -> Self {
+    pub unsafe fn new_ref_A(arg1: *mut A) -> Self {
         let mut __bindgen_tmp = ::std::mem::MaybeUninit::uninit();
-        A_A1(__bindgen_tmp.as_mut_ptr(), arg1);
+        A_A_ref_A(__bindgen_tmp.as_mut_ptr(), arg1);
         __bindgen_tmp.assume_init()
     }
     #[inline]
-    pub unsafe fn new2(arg1: *mut A) -> Self {
+    pub unsafe fn new_ref_A1(arg1: *mut A) -> Self {
         let mut __bindgen_tmp = ::std::mem::MaybeUninit::uninit();
-        A_A2(__bindgen_tmp.as_mut_ptr(), arg1);
+        A_A_ref_A1(__bindgen_tmp.as_mut_ptr(), arg1);
         __bindgen_tmp.assume_init()
     }
     #[inline]

@@ -19,7 +19,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[link_name = "\u{1}_ZN9BitStream5WriteEPS_j"]
-    pub fn BitStream_Write1(
+    pub fn BitStream_Write_ptr_BitStream_unsigned_int(
         this: *mut BitStream,
         bitStream: *mut BitStream,
         numberOfBits: ::std::os::raw::c_uint,
@@ -27,7 +27,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[link_name = "\u{1}_ZN9BitStream6Write1Ev"]
-    pub fn BitStream_Write11(this: *mut BitStream);
+    pub fn BitStream_Write1(this: *mut BitStream);
 }
 impl BitStream {
     #[inline]
@@ -39,15 +39,15 @@ impl BitStream {
         BitStream_Write(self, inputByteArray, numberOfBytes)
     }
     #[inline]
-    pub unsafe fn Write1(
+    pub unsafe fn Write_ptr_BitStream_unsigned_int(
         &mut self,
         bitStream: *mut BitStream,
         numberOfBits: ::std::os::raw::c_uint,
     ) {
-        BitStream_Write1(self, bitStream, numberOfBits)
+        BitStream_Write_ptr_BitStream_unsigned_int(self, bitStream, numberOfBits)
     }
     #[inline]
-    pub unsafe fn Write11(&mut self) {
-        BitStream_Write11(self)
+    pub unsafe fn Write1(&mut self) {
+        BitStream_Write1(self)
     }
 }

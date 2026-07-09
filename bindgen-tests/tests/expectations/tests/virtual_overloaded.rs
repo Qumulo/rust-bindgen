@@ -2,7 +2,7 @@
 #[repr(C)]
 pub struct C__bindgen_vtable {
     pub C_do_thing: unsafe extern "C" fn(this: *mut C, arg1: ::std::os::raw::c_char),
-    pub C_do_thing1: unsafe extern "C" fn(this: *mut C, arg1: ::std::os::raw::c_int),
+    pub C_do_thing_int: unsafe extern "C" fn(this: *mut C, arg1: ::std::os::raw::c_int),
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -29,5 +29,8 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[link_name = "\u{1}_ZN1C8do_thingEi"]
-    pub fn C_do_thing1(this: *mut ::std::os::raw::c_void, arg1: ::std::os::raw::c_int);
+    pub fn C_do_thing_int(
+        this: *mut ::std::os::raw::c_void,
+        arg1: ::std::os::raw::c_int,
+    );
 }

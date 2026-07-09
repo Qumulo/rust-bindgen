@@ -52,6 +52,15 @@ impl Type {
         }
     }
 
+    /// Get the underlying `CompInfo` for this type as a shared reference, or
+    /// `None` if this is some other kind of type.
+    pub(crate) fn as_comp(&self) -> Option<&CompInfo> {
+        match self.kind {
+            TypeKind::Comp(ref ci) => Some(ci),
+            _ => None,
+        }
+    }
+
     /// Construct a new `Type`.
     pub(crate) fn new(
         name: Option<String>,
@@ -118,6 +127,15 @@ impl Type {
     /// Is this a function type?
     pub(crate) fn is_function(&self) -> bool {
         matches!(self.kind, TypeKind::Function(..))
+    }
+
+    /// Cast this type to a function kind, or `None` if it is not a function
+    /// type.
+    pub fn as_function(&self) -> Option<&FunctionSig> {
+        match self.kind {
+            TypeKind::Function(ref fn_kind) => Some(&fn_kind),
+            _ => None,
+        }
     }
 
     /// Is this an enum type?
